@@ -171,6 +171,7 @@ public class MonitorBuilderThread extends Thread {
 		EXTEN_LIST.add("te");
 		EXTEN_LIST.add("fc");
 		EXTEN_LIST.add("if");
+		EXTEN_LIST.add("restorecon");
 	}
 
 	void add2Queue(final Path child) throws InterruptedException {
