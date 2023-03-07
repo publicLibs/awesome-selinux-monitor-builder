@@ -228,6 +228,8 @@ public class MonitorBuilderThread extends Thread {
 
 						final Set<PosixFilePermission> perms = Files.getPosixFilePermissions(restorecon);
 						perms.add(PosixFilePermission.OWNER_EXECUTE);
+						perms.add(PosixFilePermission.GROUP_EXECUTE);
+						perms.add(PosixFilePermission.OTHERS_EXECUTE);
 						Files.setPosixFilePermissions(restorecon, perms);
 
 						System.err.println("RESTORECON " + restorecon);
