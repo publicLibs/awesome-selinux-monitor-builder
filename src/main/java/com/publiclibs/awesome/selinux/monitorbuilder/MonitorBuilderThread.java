@@ -153,7 +153,7 @@ public class MonitorBuilderThread extends Thread {
 		System.err.println("statusInstall: " + statusInstall);
 	}
 
-	long delay = TimeUnit.SECONDS.toMillis(20);
+	long delay = TimeUnit.SECONDS.toMillis(10);
 	private final WatchDir watchDir;
 	private final Object delayLock = new Object();
 
@@ -185,6 +185,7 @@ public class MonitorBuilderThread extends Thread {
 					if (EXTEN_LIST.contains(ext)) {
 						final String moduleName = fileName.substring(0, fileName.length() - 3);
 						final Path moduleDir = child.getParent();
+						System.out.println("MonitorBuilderThread.add2Queue():" + child);
 						map.putIfAbsent(moduleName, moduleDir);
 					}
 				}
@@ -224,14 +225,6 @@ public class MonitorBuilderThread extends Thread {
 					final Path restorecon = moduleDir.resolve(moduleName + ".restorecon");
 					if (Files.exists(restorecon) && Files.isRegularFile(restorecon)) {
 
-						/*
-						 * final Set<PosixFilePermission> perms =
-						 * Files.getPosixFilePermissions(restorecon);
-						 * perms.add(PosixFilePermission.OWNER_EXECUTE);
-						 * perms.add(PosixFilePermission.GROUP_EXECUTE);
-						 * perms.add(PosixFilePermission.OTHERS_EXECUTE);
-						 * Files.setPosixFilePermissions(restorecon, perms);
-						 */
 						System.err.println("RESTORECON " + restorecon);
 
 						final List<String> lines = Files.readAllLines(restorecon, StandardCharsets.UTF_8);
@@ -244,9 +237,7 @@ public class MonitorBuilderThread extends Thread {
 									new InputStreamReader(buildProcess.getInputStream(), StandardCharsets.UTF_8))) {
 								reader.lines().forEachOrdered(System.out::println);
 							}
-
 						}
-
 						System.err.println("RESTORECON " + restorecon + " end");
 					}
 
