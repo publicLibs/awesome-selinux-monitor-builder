@@ -3,19 +3,14 @@
  */
 package com.publiclibs.awesome.selinux.monitorbuilder;
 
-import static java.nio.file.Files.isRegularFile;
 import static java.nio.file.LinkOption.NOFOLLOW_LINKS;
 import static java.nio.file.StandardWatchEventKinds.ENTRY_CREATE;
 import static java.nio.file.StandardWatchEventKinds.ENTRY_DELETE;
 import static java.nio.file.StandardWatchEventKinds.ENTRY_MODIFY;
 import static java.nio.file.StandardWatchEventKinds.OVERFLOW;
 
-import java.io.BufferedReader;
 import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.FileSystem;
 import java.nio.file.FileSystems;
 import java.nio.file.FileVisitResult;
@@ -28,11 +23,8 @@ import java.nio.file.WatchEvent.Kind;
 import java.nio.file.WatchKey;
 import java.nio.file.WatchService;
 import java.nio.file.attribute.BasicFileAttributes;
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
-import java.util.NoSuchElementException;
 
 /**
  * @author freedom1b2830
@@ -52,11 +44,16 @@ public class MonitorBuilder {
 		private final boolean trace;
 		private final FileSystem fs;
 
+		private final MonitorBuilderThread monitorBuilderThread;
+		public boolean active = true;
+
 		private WatchDir(final Path dir, final boolean recursiveIn) throws IOException {
+
 			this.fs = FileSystems.getDefault();
 			this.watcher = fs.newWatchService();
 			this.keys = new HashMap<>();
 			this.recursive = recursiveIn;
+			monitorBuilderThread = new MonitorBuilderThread(this, dir);
 
 			if (recursive) {
 				System.out.format("Scanning %s ...\n", dir);
@@ -65,12 +62,13 @@ public class MonitorBuilder {
 			} else {
 				register(dir);
 			}
+			monitorBuilderThread.start();
 
 			// enable trace after initial registration
 			this.trace = true;
 		}
 
-		void processEvents() {
+		void processEvents() throws InterruptedException {
 			for (;;) {
 
 				// wait for key to be signalled
@@ -119,26 +117,8 @@ public class MonitorBuilder {
 					}
 
 					if (kind == ENTRY_MODIFY || kind == ENTRY_CREATE) {
-						if (isRegularFile(child)) {
-							final String fileName = child.toFile().getName();
-							if (fileName.contains(".")) {
-								final String[] fileParts = fileName.split("\\.");
-								final String ext = fileParts[fileParts.length - 1];
-								if (EXTEN_LIST.contains(ext)) {
-									final String moduleName = fileName.substring(0, fileName.length() - 3);
-									final Path moduleDir = child.getParent();
-									try {
-										rebuildModule(moduleDir, moduleName);
-									} catch (final Exception e) {
-										e.printStackTrace();
-									}
-								}
-
-							}
-
-						}
+						monitorBuilderThread.add2Queue(child);
 					}
-
 				}
 
 				// reset key and remove from set if directory no longer accessible
@@ -183,149 +163,21 @@ public class MonitorBuilder {
 
 	}
 
-	protected static final List<String> EXTEN_LIST = new ArrayList<>();
-	static {
-		EXTEN_LIST.add("te");
-		EXTEN_LIST.add("fc");
-		EXTEN_LIST.add("if");
-	}
-
-	/**
-	 * Компилирует модуль
-	 *
-	 * @param makeFile   путь до MakeFile загруженной политики
-	 * @param moduleDir  место где лежит модуль
-	 * @param moduleName название модуля
-	 * @return 0 если успешно
-	 * @throws IOException
-	 * @throws InterruptedException
-	 */
-	private static int compile(final Path makeFile, final Path moduleDir, final String moduleName)
-			throws IOException, InterruptedException {
-		final String makeFileArg = makeFile.toAbsolutePath().toString();
-
-		final ProcessBuilder makeBuilder = new ProcessBuilder("make", "-f", makeFileArg, moduleName);
-		makeBuilder.directory(moduleDir.toFile());
-		makeBuilder.redirectErrorStream(true);
-		final Process buildProcess = makeBuilder.start();
-		try (BufferedReader reader = new BufferedReader(
-				new InputStreamReader(buildProcess.getInputStream(), StandardCharsets.UTF_8))) {
-			reader.lines().filter(line -> !line.startsWith("m4:")).forEachOrdered(System.out::println);
-		}
-		return buildProcess.waitFor();
-	}
-
-	/**
-	 * выполняет единствунную команду
-	 *
-	 * @param command единственная команда
-	 * @return вывод команды
-	 * @throws IOException
-	 */
-	private static List<String> getOutBySingleCMD(final String command) throws IOException {
-		final ProcessBuilder processBuilder = new ProcessBuilder(command);
-		processBuilder.redirectErrorStream(true);
-		final ArrayList<String> returnData = new ArrayList<>();
-		final Process process = processBuilder.start();
-		try (InputStream is = process.getInputStream()) {
-			try (BufferedReader reader = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8))) {
-				reader.lines().forEachOrdered(returnData::add);
-			}
-		}
-		return returnData;
-	}
-
-	/**
-	 * возвращяет полный путь к MakeFile загруженной политики
-	 *
-	 * @return путь до MakeFile загруженной политики
-	 * @throws IOException
-	 */
-	private static Path getPolicyCurrentMakeFile() throws IOException {
-		final Path defaultInstallDir = Paths.get("/usr/share/selinux");
-		final Path makeFile = defaultInstallDir.resolve(getPolicyName()).resolve("include/Makefile");
-		if (Files.notExists(makeFile)) {
-			throw new FileNotFoundException("cant get makefile in path" + makeFile);
-		}
-		return makeFile;
-	}
-
-	/**
-	 * получение названия политики, вызвав sestatus
-	 *
-	 * @return название загруженной политики
-	 * @throws IOException
-	 */
-	private static String getPolicyName() throws IOException {
-		final List<String> data = getOutBySingleCMD("sestatus");
-		for (final String string : data) {
-			if (string.contains("Loaded policy name:")) {
-				return string.split(":[ ]+")[1];
-			}
-		}
-		throw new NoSuchElementException("cant get policy name by {sestatus}");
-	}
-
-	/**
-	 * устанавливает модуль
-	 *
-	 * @param moduleDir  место где лежит модуль
-	 * @param moduleName название модуля
-	 * @return 0 если успешно
-	 * @throws IOException
-	 * @throws InterruptedException
-	 */
-	private static int installModule(final Path moduleDir, final String moduleName)
-			throws IOException, InterruptedException {
-		final ProcessBuilder makeBuilder = new ProcessBuilder("semodule", "-i", moduleName);
-		makeBuilder.directory(moduleDir.toFile());
-		makeBuilder.redirectErrorStream(true);
-		final Process buildProcess = makeBuilder.start();
-		try (BufferedReader reader = new BufferedReader(
-				new InputStreamReader(buildProcess.getInputStream(), StandardCharsets.UTF_8))) {
-			reader.lines().filter(line -> !line.startsWith("m4:")).forEachOrdered(System.out::println);
-		}
-		// semodule -i $1.pp
-		return buildProcess.waitFor();
-	}
-
 	/**
 	 * @param args
 	 * @throws IOException
+	 * @throws InterruptedException
 	 */
-	public static void main(final String[] args) throws IOException {
+	public static void main(final String[] args) throws IOException, InterruptedException {
 		if (args.length != 1) {
-			throw new IllegalArgumentException("1 arg in path to policy/->>modules");
+			throw new IllegalArgumentException("1 arg in path to target_dir/.git");
 		}
 		final Path rootDir = Paths.get(args[0]);
 		if (Files.notExists(rootDir)) {
 			throw new FileNotFoundException(rootDir.toString() + " not found");
 		}
+
 		new WatchDir(rootDir, true).processEvents();
-		try (FileSystem fs = FileSystems.getDefault()) {
-			try (WatchService watcher = fs.newWatchService()) {
-			}
-
-		}
-	}
-
-	/**
-	 * собирает и устанавливает модуль
-	 *
-	 * @param moduleDir  место где лежит модуль
-	 * @param moduleName название модуля
-	 * @throws IOException
-	 * @throws InterruptedException
-	 */
-	public static void rebuildModule(final Path moduleDir, final String moduleName)
-			throws IOException, InterruptedException {
-		final Path makeFile = getPolicyCurrentMakeFile();
-
-		final String name = moduleName + ".pp";
-		final int statusCompile = compile(makeFile, moduleDir, name);
-		System.err.println("statusCompile: " + statusCompile);
-		final int statusInstall = installModule(moduleDir, name);
-		System.err.println("statusInstall: " + statusInstall);
 	}
 
 }
