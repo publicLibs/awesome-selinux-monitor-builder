@@ -14,11 +14,13 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.attribute.PosixFilePermission;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map.Entry;
 import java.util.NoSuchElementException;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
@@ -223,6 +225,10 @@ public class MonitorBuilderThread extends Thread {
 					rebuildModule(moduleDir, moduleName);
 					final Path restorecon = moduleDir.resolve(moduleName + ".restorecon");
 					if (Files.exists(restorecon) && Files.isRegularFile(restorecon)) {
+
+						final Set<PosixFilePermission> perms = Files.getPosixFilePermissions(restorecon);
+						perms.add(PosixFilePermission.OWNER_EXECUTE);
+						Files.setPosixFilePermissions(restorecon, perms);
 
 						System.err.println("RESTORECON " + restorecon);
 						final ProcessBuilder makeBuilder = new ProcessBuilder("bash", "-c",
