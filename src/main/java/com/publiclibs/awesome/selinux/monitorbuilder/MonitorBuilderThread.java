@@ -14,13 +14,11 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.nio.file.attribute.PosixFilePermission;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map.Entry;
 import java.util.NoSuchElementException;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
@@ -226,22 +224,29 @@ public class MonitorBuilderThread extends Thread {
 					final Path restorecon = moduleDir.resolve(moduleName + ".restorecon");
 					if (Files.exists(restorecon) && Files.isRegularFile(restorecon)) {
 
-						final Set<PosixFilePermission> perms = Files.getPosixFilePermissions(restorecon);
-						perms.add(PosixFilePermission.OWNER_EXECUTE);
-						perms.add(PosixFilePermission.GROUP_EXECUTE);
-						perms.add(PosixFilePermission.OTHERS_EXECUTE);
-						Files.setPosixFilePermissions(restorecon, perms);
-
+						/*
+						 * final Set<PosixFilePermission> perms =
+						 * Files.getPosixFilePermissions(restorecon);
+						 * perms.add(PosixFilePermission.OWNER_EXECUTE);
+						 * perms.add(PosixFilePermission.GROUP_EXECUTE);
+						 * perms.add(PosixFilePermission.OTHERS_EXECUTE);
+						 * Files.setPosixFilePermissions(restorecon, perms);
+						 */
 						System.err.println("RESTORECON " + restorecon);
-						final ProcessBuilder makeBuilder = new ProcessBuilder("bash", "-c",
-								restorecon.toAbsolutePath().toFile().getAbsolutePath());
-						makeBuilder.directory(moduleDir.toFile());
-						makeBuilder.redirectErrorStream(true);
-						final Process buildProcess = makeBuilder.start();
-						try (BufferedReader reader = new BufferedReader(
-								new InputStreamReader(buildProcess.getInputStream(), StandardCharsets.UTF_8))) {
-							reader.lines().forEachOrdered(System.out::println);
+
+						final List<String> lines = Files.readAllLines(restorecon, StandardCharsets.UTF_8);
+						for (final String line : lines) {
+							final ProcessBuilder makeBuilder = new ProcessBuilder("restorecon", "-RFv", line);
+							makeBuilder.directory(moduleDir.toFile());
+							makeBuilder.redirectErrorStream(true);
+							final Process buildProcess = makeBuilder.start();
+							try (BufferedReader reader = new BufferedReader(
+									new InputStreamReader(buildProcess.getInputStream(), StandardCharsets.UTF_8))) {
+								reader.lines().forEachOrdered(System.out::println);
+							}
+
 						}
+
 						System.err.println("RESTORECON " + restorecon + " end");
 					}
 
