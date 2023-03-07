@@ -217,6 +217,8 @@ public class MonitorBuilderThread extends Thread {
 				for (final Entry<String, Path> entry : map.entrySet()) {
 					final String moduleName = entry.getKey();
 					final Path moduleDir = entry.getValue();
+
+					map.remove(moduleDir, moduleName);
 					rebuildModule(moduleDir, moduleName);
 					final Path restorecon = moduleDir.resolve(moduleName + ".restorecon");
 					if (Files.exists(restorecon) && Files.isRegularFile(restorecon)) {
